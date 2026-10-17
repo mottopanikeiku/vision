@@ -1,4 +1,5 @@
 import sys
+from itertools import cycle, islice
 
 import pytest
 import torch
@@ -91,6 +92,35 @@ class TestDatasetsSamplers:
         indices = torch.tensor(list(iter(distributed_sampler_rank1)))
         assert len(distributed_sampler_rank1) == 6
         assert_equal(indices, torch.tensor([5, 7, 9, 0, 2, 4]))
+
+
+class TestDistributedSampler:
+    @pytest.mark.parametrize("num_groups", [0, 1, 2, 5, 6])
+    @pytest.mark.parametrize("group_size", [1, 3])
+    @pytest.mark.parametrize("shuffle", [False, True])
+    def test_padding(self, num_groups, group_size, shuffle):
+        dataset = range(num_groups * group_size)
+        num_replicas = 5
+        epoch = 3
+        if shuffle:
+            order = torch.randperm(len(dataset), generator=torch.Generator().manual_seed(epoch)).tolist()
+        else:
+            order = list(dataset)
+        total_size = ((num_groups + num_replicas - 1) // num_replicas) * num_replicas * group_size
+        padded = list(islice(cycle(order), total_size))
+
+        for rank in range(num_replicas):
+            sampler = DistributedSampler(
+                dataset, num_replicas=num_replicas, rank=rank, shuffle=shuffle, group_size=group_size
+            )
+            sampler.set_epoch(epoch)
+            expected = [
+                index
+                for start in range(rank * group_size, total_size, num_replicas * group_size)
+                for index in padded[start : start + group_size]
+            ]
+            assert list(sampler) == expected
+            assert len(sampler) == len(expected)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ class DistributedSampler(Sampler):
     """
     Extension of DistributedSampler, as discussed in
     https://github.com/pytorch/pytorch/issues/23430
+    Sample groups are repeated as needed so each replica receives the same number of groups.
 
     Example:
         dataset: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
@@ -79,7 +80,11 @@ class DistributedSampler(Sampler):
             indices = list(range(len(self.dataset)))
 
         # add extra samples to make it evenly divisible
-        indices += indices[: (self.total_size - len(indices))]
+        padding_size = self.total_size - len(indices)
+        if padding_size <= len(indices):
+            indices += indices[:padding_size]
+        else:
+            indices += (indices * math.ceil(padding_size / len(indices)))[:padding_size]
         assert len(indices) == self.total_size
 
         total_group_size = self.total_size // self.group_size
