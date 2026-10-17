@@ -143,6 +143,27 @@ class TestDatasetsUtils:
         with open(file) as fh:
             assert fh.read() == content
 
+    @pytest.mark.parametrize("extension", [".bz2", ".gz", ".xz"])
+    @pytest.mark.parametrize("use_pathlib", (True, False))
+    @pytest.mark.parametrize("extract", (utils._decompress, utils.extract_archive))
+    def test_decompress_preserves_path(self, extension, use_pathlib, extract, tmpdir):
+        root = pathlib.Path(tmpdir)
+        source_dir = root / f"data{extension}"
+        source_dir.mkdir()
+        (root / "data").mkdir()
+        compressed = source_dir / f"file{extension}.txt{extension}"
+        expected = source_dir / f"file{extension}.txt"
+        unrelated = (source_dir if extract is utils.extract_archive else root / "data") / "file.txt"
+        unrelated.write_bytes(b"keep me")
+        with _COMPRESSED_FILE_OPENERS[extension](compressed, "wb") as fh:
+            fh.write(b"compressed content")
+
+        output = extract(compressed if use_pathlib else str(compressed))
+
+        assert pathlib.Path(output) == expected
+        assert expected.read_bytes() == b"compressed content"
+        assert unrelated.read_bytes() == b"keep me"
+
     def test_decompress_no_compression(self):
         with pytest.raises(RuntimeError):
             utils._decompress("foo.tar")
